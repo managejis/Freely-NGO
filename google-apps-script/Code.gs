@@ -7,7 +7,7 @@
  * The spreadsheet is the organization's central copy of all data. Every phone keeps its own SQLite copy and syncs with this
  * script whenever the internet is on. Tabs (readable in Google Sheets, please edit data in the app, not here):
  *   Users, Devices, Branches, Beneficiaries, Medical, Safeguarding, Care, Attendance, Staff, Donations, Expenses, Inventory, StockLog,
- *   Announcements, AuditLog, Settings, Organization
+ *   Leave, Announcements, AuditLog, Settings, Organization
  *
  * Security: phones identify themselves with a mobile number + a secret token that the admin approved. Only the hash of a token
  * is stored. Role-based access: a phone only receives (and may only write) the record types its user's roles allow, e.g. only the
@@ -24,6 +24,7 @@ var TYPES = {
   person:       { tab: 'Staff',         cols: ['name', 'kind', 'phone', 'designation', 'department', 'branchId', 'joinDate', 'status', 'address', 'emergencyContact', 'responsibilities'] },
   donation:     { tab: 'Donations',     cols: ['date', 'donor', 'donorContact', 'type', 'amount', 'quantity', 'mode', 'purpose', 'restricted', 'receiptNo', 'branchId', 'remarks', 'void', 'voidReason'] },
   expense:      { tab: 'Expenses',      cols: ['date', 'category', 'description', 'amount', 'mode', 'paidTo', 'branchId', 'remarks', 'status', 'enteredBy', 'verifiedBy', 'approvedBy', 'paidBy', 'void', 'voidReason'] },
+  leave:        { tab: 'Leave',         cols: ['personName', 'personId', 'leaveType', 'fromDate', 'toDate', 'days', 'reason', 'branchId', 'status', 'enteredBy', 'verifiedBy', 'approvedBy', 'rejectedBy', 'cancelledBy'] },
   item:         { tab: 'Inventory',     cols: ['name', 'category', 'unit', 'minStock', 'expiryDate', 'branchId'] },
   stock:        { tab: 'StockLog',      cols: ['itemId', 'itemName', 'branchId', 'kind', 'qty', 'date', 'note'] },
   announcement: { tab: 'Announcements', cols: ['title', 'body', 'date', 'urgent'] },
@@ -51,12 +52,12 @@ var BENW = MGR.concat(COORD);
 var BROAD = ['ngo_admin', 'home_manager', 'doctor', 'auditor', 'caretaker', 'volunteer', 'accountant'];   // see every beneficiary category
 var COORD_CAT = { children_coordinator: 'child', oldage_coordinator: 'elder', patient_coordinator: 'patient' };
 var ALL_ROLES = ['ngo_admin', 'home_manager', 'children_coordinator', 'oldage_coordinator', 'patient_coordinator', 'doctor', 'accountant', 'caretaker', 'volunteer', 'auditor'];
-var READ = { branch: null, beneficiary: BENR, medical: MEDICAL, safeguard: SAFE, care: CARE, attendance: ATTR, person: ['ngo_admin', 'home_manager', 'auditor'], donation: MONEYR, expense: MONEYR, item: STOCKR, stock: STOCKR, announcement: null, settings: null, audit: null };
-var WRITE = { branch: [], beneficiary: BENW, medical: MEDICAL, safeguard: SAFE, care: CARE, attendance: ATTW, person: MGR, donation: MONEYW, expense: EXPENSEW, item: MGR, stock: STOCKW, announcement: MGR, settings: [], audit: null };
+var READ = { branch: null, beneficiary: BENR, medical: MEDICAL, safeguard: SAFE, care: CARE, attendance: ATTR, person: ['ngo_admin', 'home_manager', 'auditor'], leave: ['ngo_admin', 'home_manager', 'auditor'], donation: MONEYR, expense: MONEYR, item: STOCKR, stock: STOCKR, announcement: null, settings: null, audit: null };
+var WRITE = { branch: [], beneficiary: BENW, medical: MEDICAL, safeguard: SAFE, care: CARE, attendance: ATTW, person: MGR, leave: null, donation: MONEYW, expense: EXPENSEW, item: MGR, stock: STOCKW, announcement: MGR, settings: [], audit: null };
 // Types that belong to a branch: a person assigned to a branch only receives and writes that branch's records.
-var BRANCH_SCOPED = { beneficiary: 1, medical: 1, safeguard: 1, care: 1, attendance: 1, person: 1, donation: 1, expense: 1, item: 1, stock: 1 };
-// Expenses can be entered by staff who may not read the expense list: they receive only the entries they made themselves.
-var READ_OWN = { expense: 1 };
+var BRANCH_SCOPED = { beneficiary: 1, medical: 1, safeguard: 1, care: 1, attendance: 1, person: 1, leave: 1, donation: 1, expense: 1, item: 1, stock: 1 };
+// Expenses and leave requests can be entered by people who may not read the whole list: they receive only the entries they made.
+var READ_OWN = { expense: 1, leave: 1 };   // leave: everybody may request leave and sees their own requests
 
 function allowed_(who, table, type) {
   if (who.role === 'admin') return true;
@@ -415,6 +416,30 @@ function inScope_(who, cats, type, data, bmap) {
 var EXPENSE_VERIFY = ['ngo_admin', 'home_manager'], EXPENSE_APPROVE = ['ngo_admin'], EXPENSE_PAY = ['accountant'];
 function canDo_(who, list) { return who.role === 'admin' || anyRole_(who, list); }
 
+var LEAVE_VERIFY = ['ngo_admin', 'home_manager'], LEAVE_APPROVE = ['ngo_admin'];
+/** Leave workflow: requested -> verified (manager) -> approved (administrator); or rejected / cancelled. Nobody may verify or approve
+ *  their own request (the Super Admin excepted). Approved / rejected / cancelled requests can no longer be edited.
+ *  Returns an error text, or '' when the change is allowed. */
+function leaveRule_(who, cur, c) {
+  var to = String(c.data.status || 'requested');
+  if (!cur) return (to === 'requested' && String(c.data.enteredBy) === who.mobile) ? '' : 'A new leave request must start as requested by you';
+  var from = String(cur.data.status || 'requested');
+  var own = String(cur.data.enteredBy) === who.mobile && who.role !== 'admin';
+  if (to === from) {
+    if (from === 'requested') return (own || canDo_(who, LEAVE_VERIFY)) ? '' : 'Not your request';
+    var keys = ['fromDate', 'toDate', 'days', 'leaveType', 'personId', 'personName', 'branchId'];
+    for (var i = 0; i < keys.length; i++) if (String(cur.data[keys[i]]) !== String(c.data[keys[i]])) return 'This request is already ' + from + ' and cannot be edited';
+    return '';
+  }
+  if (from === 'requested' && to === 'verified') return (!own && canDo_(who, LEAVE_VERIFY)) ? '' : 'Only a manager can verify (not your own request)';
+  if (from === 'requested' && to === 'cancelled') return String(cur.data.enteredBy) === who.mobile ? '' : 'Only the person who asked can cancel';
+  if ((from === 'requested' || from === 'verified') && to === 'rejected') return (!own && canDo_(who, LEAVE_VERIFY)) ? '' : 'Not allowed';
+  if (from === 'verified' && to === 'approved') return (!own && canDo_(who, LEAVE_APPROVE)) ? '' : 'Only the administrator can approve (not your own request)';
+  if (from === 'verified' && to === 'cancelled') return String(cur.data.enteredBy) === who.mobile ? '' : 'Only the person who asked can cancel';
+  if (from === 'approved' && to === 'cancelled') return canDo_(who, LEAVE_APPROVE) ? '' : 'Only the administrator can cancel approved leave';
+  return 'Invalid step';
+}
+
 /** Expense workflow: entered -> verified -> approved -> paid (or rejected). Each step needs its own role; approved / paid /
  *  rejected expenses can no longer be edited (only voided). Returns an error text, or '' when the change is allowed. */
 function expenseRule_(who, cur, c) {
@@ -486,6 +511,7 @@ function sync_(req) {
     if (!inScope_(who, cats, c.type, c.data, bmap)) continue;      // outside this person's branch / category
     if (cur && !inScope_(who, cats, c.type, cur.data, bmap)) continue;   // and it must not take over another branch's record
     if (c.type === 'expense' && expenseRule_(who, cur, c)) continue;
+    if (c.type === 'leave' && leaveRule_(who, cur, c)) continue;
 
     if (!cur) {
       write(t, c);
@@ -525,7 +551,7 @@ function sync_(req) {
       if ((Number(tt.vals[r][1]) || 0) <= since) continue;
       var w = wireOf_(type, tt.vals[r]);
       if (type === 'audit' && !admin && w.data.by !== who.mobile) continue;
-      if (!readAll && String(w.data.enteredBy) !== who.mobile) continue;      // staff who only enter expenses see their own entries
+      if (!readAll && String(w.data.enteredBy) !== who.mobile) continue;      // people who may only enter these see their own entries
       if (!inScope_(who, cats, type, w.data, bmap)) continue;
       send.push(w);
     }

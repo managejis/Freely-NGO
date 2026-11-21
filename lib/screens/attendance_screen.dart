@@ -91,6 +91,16 @@ class _TakeAttendanceScreenState extends State<TakeAttendanceScreen> {
     }
     final existing = await Db.instance.get(Store.attendanceId(_date, b, g));
     final old = <String, String>{};
+    if (g == 'staff' || g == 'volunteer') {
+      // approved leave covering this date is pre-filled as "On leave"
+      for (final l in await Store.approvedLeaveOn(_date)) {
+        for (final p in people) {
+          final byId = l.s('personId') == p.id;
+          final byPhone = l.s('personId').isEmpty && normMobile(p.s('phone')).isNotEmpty && normMobile(p.s('phone')) == normMobile(l.s('enteredBy'));
+          if (byId || byPhone) old[p.id] = 'On leave';
+        }
+      }
+    }
     if (existing != null && !existing.deleted) {
       (existing.data['marks'] as Map? ?? const {}).forEach((k, v) => old['$k'] = '$v');
     }

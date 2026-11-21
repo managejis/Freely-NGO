@@ -15,9 +15,10 @@ admin approval, sync and conflict handling are the same as in Freely CMS.
 ## Modules in this release
 Dashboard (facility filter, counts, alerts) - Children, old age residents and patients (registration, admission / discharge / re-admission /
 transfer with history, care and activity records, medical records, safeguarding records) - Attendance (children, residents, staff,
-volunteers; 7 statuses) - Staff and volunteers - Donations (cash, bank and material, restricted donations, receipts, void) - Expenses
+volunteers; 7 statuses) - Staff and volunteers - Leave (request -> manager verifies -> administrator approves, yearly balances,
+pre-filled "On leave" in staff attendance) - Donations (cash, bank and material, restricted donations, receipts, void) - Expenses
 (workflow: entered -> verified -> approved -> paid) - Inventory (balance from stock transactions, stock in / issue / adjust / branch transfer,
-expiry and minimum-stock alerts) - 13 reports with date and branch filters, Excel and PDF export - Users, roles and branches -
+expiry and minimum-stock alerts) - 14 reports with date and branch filters, Excel and PDF export - Users, roles and branches -
 Sync with conflict detection - encrypted Backup / Restore - Audit log (including who opened medical / safeguarding information).
 
 ## Roles
@@ -29,7 +30,8 @@ a phone never receives data its roles may not read. In addition
   it is transferred);
 * a person who is only a **coordinator** sees only their own category (children / residents / patients);
 * medical records, safeguarding records, finance and staff records are separate record types with their own role lists;
-* staff who may enter expenses but not read the expense list receive only their own entries.
+* staff who may enter expenses, and anybody who requests leave, but may not read the whole list receive only their own entries;
+* nobody can verify or approve their own leave request (the Super Admin excepted); approved leave can only be cancelled by the administrator.
 
 ## Business rules implemented
 One unique beneficiary ID across the NGO (`CH-`, `OA-`, `PT-` + random code) - historical admission records kept in the history - transfer
@@ -47,6 +49,6 @@ flutter build apk --release
 Changing `google-apps-script/Code.gs`? Copy it to `assets/freely_ngo_apps_script.txt` too.
 
 ## Not in this release
-Photos and document attachments, leave management, push notifications and reminders (follow-ups show on the dashboard), scheduled
+Photos and document attachments, push notifications and reminders (follow-ups show on the dashboard), scheduled
 backups, multiple languages, iOS build. Names in non-Latin scripts appear in Excel exports but not in PDF exports (the PDF font is Latin only).
 Bulk Excel upload is not included here (it exists in Freely CMS and Freely MRMS).

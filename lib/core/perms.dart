@@ -39,12 +39,12 @@ const _coordCategory = {'children_coordinator': 'child', 'oldage_coordinator': '
 /// Record type -> roles that may read / write it (the admin is always allowed). `null` = everybody.
 const _read = <String, Set<String>?>{
   'branch': null, 'beneficiary': _beneficiaryRead, 'medical': _medical, 'safeguard': _safe, 'care': _care, 'attendance': _attRead,
-  'person': {'ngo_admin', 'home_manager', 'auditor'}, 'donation': _moneyRead, 'expense': _moneyRead, 'item': _stockRead, 'stock': _stockRead,
+  'person': {'ngo_admin', 'home_manager', 'auditor'}, 'leave': {'ngo_admin', 'home_manager', 'auditor'}, 'donation': _moneyRead, 'expense': _moneyRead, 'item': _stockRead, 'stock': _stockRead,
   'announcement': null, 'settings': null, 'audit': null,
 };
 const _write = <String, Set<String>?>{
   'branch': <String>{}, 'beneficiary': _beneficiaryWrite, 'medical': _medical, 'safeguard': _safe, 'care': _care, 'attendance': _attWrite,
-  'person': _mgr, 'donation': _money, 'expense': _expenseEnter, 'item': _mgr, 'stock': _stockWrite,
+  'person': _mgr, 'leave': null, 'donation': _money, 'expense': _expenseEnter, 'item': _mgr, 'stock': _stockWrite,
   'announcement': _mgr, 'settings': <String>{}, 'audit': null,
 };
 
@@ -74,6 +74,8 @@ class Perms {
   static bool get takeAttendance => canWrite('attendance');
   static bool get people => canRead('person');
   static bool get editPeople => canWrite('person');
+  /// Everybody may request leave; managers and auditors see everybody's leave, others only their own requests.
+  static bool get leaveAll => canRead('leave');
   static bool get donations => canRead('donation');
   static bool get editDonations => canWrite('donation');
   static bool get expenses => canRead('expense');

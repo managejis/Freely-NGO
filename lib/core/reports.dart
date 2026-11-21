@@ -64,6 +64,20 @@ final List<ReportDef> allReports = [
       for (final m in l) [_d(m.s('date')), m.s('beneficiaryName'), categoryLabels[m.s('category')] ?? '', m.s('kind'), m.s('value'), m.s('notes'), _d(m.s('nextFollowUp'))],
     ], footer: ['Records: ${l.length}']);
   }),
+  ReportDef('leave', 'Leave report', 'Leave requests, approvals and days taken', Icons.event_busy_outlined, () => Perms.leaveAll, true, (r, b) async {
+    await Store.loadBranchNames();
+    bool overlaps(Rec l) {
+      if (r == null) return true;
+      final a = parseDate(l.s('fromDate')), c = parseDate(l.s('toDate'));
+      if (a == null || c == null) return false;
+      return !c.isBefore(DateTime(r.start.year, r.start.month, r.start.day)) && !a.isAfter(DateTime(r.end.year, r.end.month, r.end.day));
+    }
+    final l = (await Store.leaves()).where((x) => overlaps(x) && _br(x, b)).toList()..sort((x, y) => x.s('fromDate').compareTo(y.s('fromDate')));
+    final approved = l.where((x) => Store.leaveStatus(x) == 'approved').fold<int>(0, (a, x) => a + x.i('days'));
+    return ReportTable('Leave report', ['From', 'To', 'Days', 'Person', 'Type', 'Status', 'Branch', 'Reason'], [
+      for (final x in l) [_d(x.s('fromDate')), _d(x.s('toDate')), '${x.i('days')}', x.s('personName'), x.s('leaveType'), leaveStatusLabels[Store.leaveStatus(x)] ?? '', Store.branchName(x.s('branchId')), x.s('reason')],
+    ], footer: ['Requests: ${l.length}', 'Approved days: $approved']);
+  }),
   ReportDef('donation', 'Donation report', 'All donations in the period', Icons.volunteer_activism_outlined, () => Perms.donations, true, (r, b) async {
     await Store.loadBranchNames();
     final l = (await Store.donations()).where((d) => !Store.isVoid(d) && _in(d.s('date'), r) && _br(d, b)).toList()..sort((x, y) => x.s('date').compareTo(y.s('date')));
@@ -170,6 +184,7 @@ Future<ReportTable> _care(DateTimeRange? r, String b, String title, {bool onlyPa
 /// Dashboard numbers.
 class DashStats {
   int total = 0, children = 0, elders = 0, patients = 0, admissionsMonth = 0, dischargesMonth = 0, staff = 0, volunteers = 0;
+  int onLeaveToday = 0, pendingLeave = 0;
   int presentToday = 0, sheetsToday = 0, followUps = 0, lowStock = 0, expirySoon = 0, pendingExpenses = 0;
   double donationsMonth = 0, expensesMonth = 0;
 }
@@ -206,6 +221,12 @@ Future<DashStats> dashStats(String branchId) async {
       s.sheetsToday++;
       s.presentToday += ((a.data['presentCount'] ?? 0) as num).toInt();
     }
+  }
+  if (Perms.leaveAll) {
+    final lv = (await Store.leaves()).where(br).toList();
+    final t = dateStr(now);
+    s.onLeaveToday = lv.where((l) => Store.leaveStatus(l) == 'approved' && l.s('fromDate').compareTo(t) <= 0 && l.s('toDate').compareTo(t) >= 0).length;
+    s.pendingLeave = lv.where((l) => {'requested', 'verified'}.contains(Store.leaveStatus(l))).length;
   }
   final horizon = dateStr(now.add(const Duration(days: 7)));
   bool due(Rec r) => r.s('nextFollowUp').isNotEmpty && r.data['followDone'] != true && r.s('nextFollowUp').compareTo(horizon) <= 0;

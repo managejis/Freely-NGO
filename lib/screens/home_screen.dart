@@ -18,6 +18,7 @@ import 'donations_screen.dart';
 import 'expenses_screen.dart';
 import 'info_screens.dart';
 import 'inventory_screen.dart';
+import 'leave_screen.dart';
 import 'people_screen.dart';
 import 'reports_screen.dart';
 import 'search_screen.dart';
@@ -45,6 +46,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final items = <(IconData, String, Color, VoidCallback)>[
       if (Perms.editBeneficiaries) for (final c in Perms.allowedCategories) (Icons.person_add_alt_1, 'Register ${categoryLabels[c]!.toLowerCase()}', c == catChild ? accentOrange : (c == catElder ? accentViolet : accentPink), () => startRegistration(context, category: c)),
       if (Perms.takeAttendance) (Icons.fact_check_outlined, 'Take attendance', accentGreen, () => go(context, const TakeAttendanceScreen())),
+      (Icons.event_busy_outlined, 'Request leave', accentSky, () => go(context, const LeaveScreen())),
       if (Perms.editDonations) (Icons.volunteer_activism, 'Add donation', accentGreen, () => go(context, const DonationsScreen())),
       if (Perms.enterExpenses) (Icons.receipt_long_outlined, 'Enter expense', accentOrange, () => go(context, const ExpensesScreen())),
       if (Perms.editPeople) (Icons.badge_outlined, 'Add staff / volunteer', accentSky, () => go(context, const PeopleScreen())),
@@ -145,7 +147,7 @@ class _Dashboard extends StatelessWidget {
     final first = app.userName.split(' ').first;
     final urgent = h.announcements.where((a) => a.data['urgent'] == true).toList();
     final cats = Perms.allowedCategories;
-    final alerts = s.followUps + s.lowStock + s.expirySoon + s.pendingExpenses;
+    final alerts = s.followUps + s.lowStock + s.expirySoon + s.pendingExpenses + s.pendingLeave;
 
     final pills = <(IconData, String, VoidCallback)>[
       if (Perms.beneficiaries) for (final c in cats) (_catIcon(c), categoryPlural[c]!, () => go(context, BeneficiariesScreen(category: c))),
@@ -159,6 +161,7 @@ class _Dashboard extends StatelessWidget {
       if (Perms.beneficiaries) _Tile(Icons.groups_rounded, 'Beneficiaries', accentViolet, () => go(context, const BeneficiariesScreen())),
       if (Perms.attendance) _Tile(Icons.fact_check_rounded, 'Attendance', accentGreen, () => go(context, const AttendanceScreen())),
       if (Perms.people) _Tile(Icons.badge_rounded, 'Staff', accentSky, () => go(context, const PeopleScreen())),
+      _Tile(Icons.event_busy_rounded, 'Leave', accentOrange, () => go(context, const LeaveScreen())),
       if (Perms.donations) _Tile(Icons.volunteer_activism_rounded, 'Donations', accentGreen, () => go(context, const DonationsScreen())),
       if (Perms.expenses || Perms.enterExpenses) _Tile(Icons.receipt_long_rounded, 'Expenses', accentOrange, () => go(context, const ExpensesScreen())),
       if (Perms.inventory) _Tile(Icons.inventory_2_rounded, 'Inventory', accentPink, () => go(context, const InventoryScreen())),
@@ -180,6 +183,7 @@ class _Dashboard extends StatelessWidget {
         _Stat('Discharges (month)', '${s.dischargesMonth}', Icons.logout, accentSky),
       ],
       if (Perms.people) ...[_Stat('Staff', '${s.staff}', Icons.badge_outlined, accentSky), _Stat('Volunteers', '${s.volunteers}', Icons.volunteer_activism_outlined, accentGreen)],
+      if (Perms.leaveAll) _Stat('Staff on leave today', '${s.onLeaveToday}', Icons.event_busy_outlined, accentSky),
       if (Perms.attendance) _Stat("Today's attendance", s.sheetsToday == 0 ? 'not taken' : '${s.presentToday} present', Icons.fact_check_outlined, accentGreen),
       if (Perms.care || Perms.medical) _Stat('Follow-ups due', '${s.followUps}', Icons.event_repeat, s.followUps > 0 ? accentOrange : accentGreen),
       if (Perms.donations) _Stat('Donations (month)', money(s.donationsMonth), Icons.south_west_rounded, accentGreen),
@@ -252,6 +256,7 @@ class _Dashboard extends StatelessWidget {
                 [
                   if (s.followUps > 0) '${s.followUps} follow-up${s.followUps == 1 ? '' : 's'} due',
                   if (s.pendingExpenses > 0) '${s.pendingExpenses} expense${s.pendingExpenses == 1 ? '' : 's'} not yet paid',
+                  if (s.pendingLeave > 0) '${s.pendingLeave} leave request${s.pendingLeave == 1 ? '' : 's'} pending',
                   if (s.lowStock > 0) '${s.lowStock} item${s.lowStock == 1 ? '' : 's'} low on stock',
                   if (s.expirySoon > 0) '${s.expirySoon} item${s.expirySoon == 1 ? '' : 's'} expiring / expired',
                 ].join(' · '),

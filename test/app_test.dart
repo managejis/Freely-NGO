@@ -74,8 +74,8 @@ void main() {
   });
 
   test('reports are defined once each, and the entity types cover the backend', () {
-    expect(allReports.length, 13);
-    expect({for (final r in allReports) r.key}.length, 13);
+    expect(allReports.length, 14);
+    expect({for (final r in allReports) r.key}.length, 14);
     expect(entityTypes, containsAll([tBranch, tBeneficiary, tMedical, tSafeguard, tCare, tAttendance, tPerson, tDonation, tExpense, tItem, tStock]));
   });
 
@@ -84,5 +84,17 @@ void main() {
     final x = Excel.decodeBytes(Exporter.excelBytes(t, 'All branches'));
     expect(x.tables.keys.first, 'Test report');
     expect(x.tables.values.first.maxRows, greaterThanOrEqualTo(7));
+  });
+
+  test('leave: days are inclusive, balance counts approved days of the financial year', () {
+    expect(Store.leaveDays('2026-05-04', '2026-05-06'), 3);
+    expect(Store.leaveDays('2026-05-06', '2026-05-04'), 0);
+    expect(Store.fyOf(DateTime(2026, 3, 31)), 2025);
+    expect(Store.fyOf(DateTime(2026, 4, 1)), 2026);
+    Rec l(String type, String from, int days, String status) => Rec(id: newId(), orgId: 'o', type: tLeave, updatedAt: nowIso(), data: {'leaveType': type, 'fromDate': from, 'days': days, 'status': status});
+    final list = [l('Casual leave', '2026-05-04', 3, 'approved'), l('Casual leave', '2026-06-01', 2, 'requested'), l('Casual leave', '2027-04-02', 5, 'approved'), l('Sick leave', '2026-07-01', 4, 'approved')];
+    expect(Store.usedLeave(list, 'Casual leave', 2026), 3);
+    expect(Store.usedLeave(list, 'Sick leave', 2026), 4);
+    expect(Store.usedLeave(list, 'Casual leave', 2027), 5);
   });
 }

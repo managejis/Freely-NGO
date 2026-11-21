@@ -12,6 +12,7 @@ const tSafeguard = 'safeguard';      // restricted: incidents, safeguarding conc
 const tCare = 'care';                // daily care, activities, visits, education, nutrition ...
 const tAttendance = 'attendance';
 const tPerson = 'person';            // staff and volunteers
+const tLeave = 'leave';              // leave request of a staff member or volunteer
 const tDonation = 'donation';
 const tExpense = 'expense';
 const tItem = 'item';                // inventory item
@@ -19,13 +20,13 @@ const tStock = 'stock';              // inventory stock transaction (balance = s
 const tAnnouncement = 'announcement';
 const tAudit = 'audit';
 const tSettings = 'settings';
-const entityTypes = {tBranch, tBeneficiary, tMedical, tSafeguard, tCare, tAttendance, tPerson, tDonation, tExpense, tItem, tStock, tAnnouncement, tAudit, tSettings};
+const entityTypes = {tBranch, tBeneficiary, tMedical, tSafeguard, tCare, tAttendance, tPerson, tLeave, tDonation, tExpense, tItem, tStock, tAnnouncement, tAudit, tSettings};
 
 /// Types where the newest write simply wins (no conflict dialog).
 const lastWriterWinsTypes = {tAudit, tSettings};
 
 /// Types that belong to a branch (a branch manager only ever sees / writes their own branch).
-const branchScopedTypes = {tBeneficiary, tMedical, tSafeguard, tCare, tAttendance, tPerson, tDonation, tExpense, tItem, tStock};
+const branchScopedTypes = {tBeneficiary, tMedical, tSafeguard, tCare, tAttendance, tPerson, tLeave, tDonation, tExpense, tItem, tStock};
 
 // ---------------------------------------------------------------------- lists
 const catChild = 'child', catElder = 'elder', catPatient = 'patient';
@@ -56,6 +57,13 @@ const stockKinds = {'in': 'Stock in', 'issue': 'Issue', 'adjust': 'Adjustment', 
 /// Expense workflow: entered -> verified (manager) -> approved (administrator) -> paid (accountant). A rejected expense is closed.
 const expenseFlow = ['entered', 'verified', 'approved', 'paid'];
 const expenseStatusLabels = {'entered': 'Entered', 'verified': 'Verified', 'approved': 'Approved', 'paid': 'Paid', 'rejected': 'Rejected'};
+
+/// Leave: requested -> verified (manager) -> approved (administrator); or rejected / cancelled.
+const leaveTypes = ['Casual leave', 'Sick leave', 'Earned leave', 'Unpaid leave', 'Other'];
+const leaveFlow = ['requested', 'verified', 'approved'];
+const leaveStatusLabels = {'requested': 'Requested', 'verified': 'Verified', 'approved': 'Approved', 'rejected': 'Rejected', 'cancelled': 'Cancelled'};
+/// Days a person may take per financial year (April - March). Unpaid and other leave are not limited.
+const leaveEntitlement = {'Casual leave': 12, 'Sick leave': 12, 'Earned leave': 15};
 
 double r2(num v) => (v * 100).round() / 100;
 
@@ -158,6 +166,46 @@ class Store {
     r.sort((a, b) => b.s('date').compareTo(a.s('date')));
     return r;
   }
+
+  // ------------------------------------------------------------------ leave
+  static Future<List<Rec>> leaves() async {
+    final r = _inBranch(await list(tLeave));
+    r.sort((a, b) => b.s('fromDate').compareTo(a.s('fromDate')));
+    return r;
+  }
+
+  static String leaveStatus(Rec l) => l.s('status').isEmpty ? 'requested' : l.s('status');
+
+  /// Inclusive number of days from [from] to [to] (yyyy-MM-dd).
+  static int leaveDays(String from, String to) {
+    final a = parseDate(from), b = parseDate(to);
+    return (a == null || b == null || b.isBefore(a)) ? 0 : daysBetween(a, b) + 1;
+  }
+
+  /// Financial year (April - March) a date falls in, as its starting year.
+  static int fyOf(DateTime d) => d.month >= 4 ? d.year : d.year - 1;
+
+  /// Approved days of [type] already used by the person who made the requests in [list], in financial year [fy].
+  static int usedLeave(List<Rec> list, String type, int fy, {String? ignoreId}) {
+    var n = 0;
+    for (final l in list) {
+      if (l.id == ignoreId || leaveStatus(l) != 'approved' || l.s('leaveType') != type) continue;
+      final d = parseDate(l.s('fromDate'));
+      if (d != null && fyOf(d) == fy) n += l.i('days');
+    }
+    return n;
+  }
+
+  static Future<void> advanceLeave(Rec l, String to) {
+    final who = {'verified': 'verifiedBy', 'approved': 'approvedBy', 'rejected': 'rejectedBy', 'cancelled': 'cancelledBy'}[to]!;
+    return save(tLeave, id: l.id, summary: 'Leave ${l.s('personName')} ${l.s('fromDate')}..${l.s('toDate')} -> ${leaveStatusLabels[to]}', data: {
+      ...l.data, 'status': to, who: _app.mobile, '${who}At': nowIso(),
+    });
+  }
+
+  /// Approved leave that covers [date]: used to pre-fill "On leave" when staff attendance is taken.
+  static Future<List<Rec>> approvedLeaveOn(String date) async =>
+      (await leaves()).where((l) => leaveStatus(l) == 'approved' && l.s('fromDate').compareTo(date) <= 0 && l.s('toDate').compareTo(date) >= 0).toList();
 
   // ------------------------------------------------------------------ money
   static Future<List<Rec>> donations() async {
